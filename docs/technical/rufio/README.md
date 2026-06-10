@@ -178,6 +178,94 @@ spec:
     powerAction: "off"
 ```
 
+#### Lenovo XClarity Controller (XCC)
+
+Lenovo XCC BMCs are served by the dedicated `lenovo` bmclib provider (Redfish).
+To prefer it on Lenovo machines, set `spec.connection.providerOptions.preferredOrder`
+to list `lenovo` first. `preferredOrder` entries are free-form provider names
+(case-insensitive); no new enum or validation is required.
+
+```yaml
+apiVersion: bmc.tinkerbell.org/v1alpha1
+kind: Machine
+metadata:
+  name: lenovo-machine-sample
+spec:
+  connection:
+    host: 10.0.0.10
+    insecureTLS: true
+    authSecretRef:
+      name: sample-machine-auth
+      namespace: rufio-system
+    providerOptions:
+      preferredOrder:
+        - lenovo
+      redfish:
+        port: 443
+```
+
+Why prefer `lenovo` on XCC: the generic Redfish path mishandles several XCC OEM
+behaviours. Most notably, XCC `VirtualMedia` slots expose no
+`InsertMedia`/`EjectMedia` actions, so the `lenovo` provider mounts/ejects media
+via a PATCH of the VirtualMedia resource — a `VirtualMediaAction` that fails on
+the stock provider succeeds once `lenovo` is preferred.
+
+> **Known limitation — boot device override on XCC is one-time only.**
+> XCC's `BootSourceOverrideEnabled` allows only `Once`/`Disabled` (not
+> `Continuous`); persistent boot is managed via the BMC's `BootOrder`. A
+> `BootDevice` action with `persistent: true` therefore fails with a clear,
+> actionable error rather than an opaque BMC 500. Use `persistent: false`
+> (one-time) for XCC; this is sufficient for virtual-media install boot. This is
+> a documented XCC constraint, not a rufio regression.
+
+### Extended BMC actions
+
+In addition to power, boot-device, and virtual-media, a `Task` (or `Job` step)
+can carry one of the following actions. As with all actions, a single Task
+performs exactly one action. Each is dispatched only when the connected BMC
+provider implements the capability; if it does not, the Task fails with a clear
+"capability not supported" condition rather than crashing the controller.
+Actions that produce output record it under `status.result` (a string map).
+
+- `powerCapAction` — set or clear the chassis power limit (watts).
+
+  ```yaml
+  task:
+    powerCapAction:
+      limitWatts: 250   # omit + set `disable: true` to clear the cap
+  ```
+
+- `secureBootAction` — enable or disable UEFI Secure Boot (applied next boot).
+  Records `secureBootEnabled`/`secureBootMode` in `status.result`.
+
+  ```yaml
+  task:
+    secureBootAction:
+      enable: true
+  ```
+
+- `inventoryAction` — read hardware inventory; records a summary
+  (`vendor`/`model`/`cpus`/`memory`/`drives`/`nics`) in `status.result`.
+
+  ```yaml
+  task:
+    inventoryAction: {}
+  ```
+
+- `firmwareAction` — fetch a firmware image by URL and install it, polling the
+  install task to a terminal state. Records `firmwareTaskID`/`firmwareState` in
+  `status.result`. On Lenovo XCC the provider owns the full push protocol and
+  rufio never touches the update service directly.
+
+  ```yaml
+  task:
+    firmwareAction:
+      imageURL: https://example.com/firmware/bmc.bin
+      component: bmc        # optional; empty = provider auto-detect
+      applyTime: OnReset    # optional Redfish OperationApplyTime
+      force: false
+  ```
+
 ### Secrets
 
 There are two options for secrets.

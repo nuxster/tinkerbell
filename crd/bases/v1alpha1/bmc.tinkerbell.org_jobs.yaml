@@ -88,6 +88,35 @@ spec:
                             should be set persistently as the first boot device.
                           type: boolean
                       type: object
+                    firmwareAction:
+                      description: FirmwareAction installs firmware and polls the
+                        resulting task to completion.
+                      properties:
+                        applyTime:
+                          description: |-
+                            ApplyTime is the Redfish OperationApplyTime carried in the multipart push
+                            UpdateParameters (e.g. OnReset, Immediate). It is distinct from the BIOS
+                            settings apply-time annotation; leave empty for the provider default.
+                          type: string
+                        component:
+                          description: Component is the firmware component target
+                            (empty means provider auto-detect).
+                          type: string
+                        force:
+                          description: Force installs even when the running version
+                            matches the image.
+                          type: boolean
+                        imageURL:
+                          description: ImageURL is the URL the controller fetches
+                            the firmware image from.
+                          type: string
+                      required:
+                      - imageURL
+                      type: object
+                    inventoryAction:
+                      description: InventoryAction triggers a hardware-inventory read;
+                        the summary is recorded in status.
+                      type: object
                     oneTimeBootDeviceAction:
                       description: |-
                         OneTimeBootDeviceAction represents a baseboard management one time set boot device operation.
@@ -120,6 +149,31 @@ spec:
                       - cycle
                       - reset
                       type: string
+                    powerCapAction:
+                      description: PowerCapAction sets or clears the chassis power
+                        limit (watts).
+                      properties:
+                        disable:
+                          description: |-
+                            Disable removes any active power cap. When true, LimitWatts is ignored and
+                            the cap is cleared (bmclib SetPowerCap is called with a nil limit).
+                          type: boolean
+                        limitWatts:
+                          description: LimitWatts is the power cap to apply, in watts.
+                            Ignored when Disable is true.
+                          format: int64
+                          type: integer
+                      type: object
+                    secureBootAction:
+                      description: SecureBootAction reads/sets UEFI Secure Boot.
+                      properties:
+                        enable:
+                          description: Enable sets UEFI Secure Boot enabled (true)
+                            or disabled (false).
+                          type: boolean
+                      required:
+                      - enable
+                      type: object
                     virtualMediaAction:
                       description: VirtualMediaAction represents a baseboard management
                         virtual media insert/eject.

@@ -59,6 +59,54 @@ type BootDeviceConfig struct {
 	EFIBoot bool `json:"efiBoot,omitempty"`
 }
 
+// PowerCapAction sets or clears the chassis power limit (in watts).
+// The watt value is passed to the bmclib SetPowerCap client method; the
+// provider translates it to the controller-appropriate Redfish payload.
+type PowerCapAction struct {
+	// LimitWatts is the power cap to apply, in watts. Ignored when Disable is true.
+	// +optional
+	LimitWatts *int64 `json:"limitWatts,omitempty"`
+
+	// Disable removes any active power cap. When true, LimitWatts is ignored and
+	// the cap is cleared (bmclib SetPowerCap is called with a nil limit).
+	// +optional
+	Disable bool `json:"disable,omitempty"`
+}
+
+// SecureBootAction reads and sets UEFI Secure Boot via the bmclib
+// GetSecureBoot/SetSecureBoot client methods.
+type SecureBootAction struct {
+	// Enable sets UEFI Secure Boot enabled (true) or disabled (false).
+	Enable bool `json:"enable"`
+}
+
+// InventoryAction triggers a hardware-inventory read via the bmclib Inventory
+// client method. The summary (vendor/model/component counts) is recorded in the
+// Task status Result map.
+type InventoryAction struct{}
+
+// FirmwareAction installs firmware via the bmclib FirmwareInstall client method
+// and polls the resulting task to a terminal state. The provider owns the XCC
+// push protocol (claim/push/poll/release); rufio never GETs the TaskMonitor URI.
+type FirmwareAction struct {
+	// ImageURL is the URL the controller fetches the firmware image from.
+	ImageURL string `json:"imageURL"`
+
+	// Component is the firmware component target (empty means provider auto-detect).
+	// +optional
+	Component string `json:"component,omitempty"`
+
+	// ApplyTime is the Redfish OperationApplyTime carried in the multipart push
+	// UpdateParameters (e.g. OnReset, Immediate). It is distinct from the BIOS
+	// settings apply-time annotation; leave empty for the provider default.
+	// +optional
+	ApplyTime string `json:"applyTime,omitempty"`
+
+	// Force installs even when the running version matches the image.
+	// +optional
+	Force bool `json:"force,omitempty"`
+}
+
 func (b BootDevice) String() string {
 	return string(b)
 }

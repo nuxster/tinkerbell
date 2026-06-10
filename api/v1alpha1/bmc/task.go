@@ -59,6 +59,18 @@ type Action struct {
 
 	// VirtualMediaAction represents a baseboard management virtual media insert/eject.
 	VirtualMediaAction *VirtualMediaAction `json:"virtualMediaAction,omitempty"`
+
+	// PowerCapAction sets or clears the chassis power limit (watts).
+	PowerCapAction *PowerCapAction `json:"powerCapAction,omitempty"`
+
+	// SecureBootAction reads/sets UEFI Secure Boot.
+	SecureBootAction *SecureBootAction `json:"secureBootAction,omitempty"`
+
+	// InventoryAction triggers a hardware-inventory read; the summary is recorded in status.
+	InventoryAction *InventoryAction `json:"inventoryAction,omitempty"`
+
+	// FirmwareAction installs firmware and polls the resulting task to completion.
+	FirmwareAction *FirmwareAction `json:"firmwareAction,omitempty"`
 }
 
 // TaskStatus defines the observed state of Task.
@@ -75,6 +87,12 @@ type TaskStatus struct {
 	// The completion time is only set when the task finishes successfully.
 	// +optional
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// Result holds action output as key/value pairs (e.g. an inventory summary
+	// vendor/model/component counts, or a firmware task id and last reported
+	// state). It is additive and only populated by actions that produce output.
+	// +optional
+	Result map[string]string `json:"result,omitempty"`
 }
 
 type TaskCondition struct {

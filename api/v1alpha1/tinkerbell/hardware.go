@@ -160,6 +160,15 @@ type Isoboot struct {
 	//+optional
 	// +kubebuilder:validation:Format=uri
 	SourceISO string `json:"sourceISO,omitempty"`
+
+	// ExtraKernelParams are additional kernel command line parameters that Smee
+	// appends to the patched ISO's cmdline for this hardware. Each entry is a
+	// space-free "key=value" (or bare flag) token, e.g.
+	// "bond_members=10-70-fd-fe-3d-4e,10-70-fd-fe-3d-4f" or "bond_mode=802.3ad".
+	// These are per-hardware; for cluster-wide defaults use Smee's global
+	// extra kernel args instead.
+	//+optional
+	ExtraKernelParams []string `json:"extraKernelParams,omitempty"`
 }
 
 // IPXE configuration.

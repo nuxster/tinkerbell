@@ -2,9 +2,12 @@ package controller_test
 
 import (
 	"context"
+	"io"
 
 	bmclib "github.com/bmc-toolbox/bmclib/v2"
+	"github.com/bmc-toolbox/bmclib/v2/bmc"
 	"github.com/bmc-toolbox/bmclib/v2/providers"
+	"github.com/bmc-toolbox/common"
 	"github.com/go-logr/logr"
 	"github.com/jacobweinstock/registrar"
 	"github.com/tinkerbell/tinkerbell/pkg/api"
@@ -98,6 +101,16 @@ type testProvider struct {
 	ErrPowerStateSet      error
 	ErrBootDeviceSet      error
 	ErrVirtualMediaInsert error
+
+	// Extended-action controls (Phase B).
+	SecureBootEnabled  bool
+	ErrSecureBootSet   error
+	ErrPowerCapSet     error
+	Inv                *common.Device
+	ErrInventory       error
+	FirmwareTaskID     string
+	FirmwareStatusVal  string
+	ErrFirmwareInstall error
 }
 
 func (t *testProvider) Name() string {
@@ -120,6 +133,11 @@ func (t *testProvider) Features() registrar.Features {
 		providers.FeaturePowerSet,
 		providers.FeatureBootDeviceSet,
 		providers.FeatureVirtualMedia,
+		providers.FeaturePowerCap,
+		providers.FeatureSecureBoot,
+		providers.FeatureInventoryRead,
+		providers.FeatureFirmwareInstall,
+		providers.FeatureFirmwareInstallStatus,
 	}
 }
 
@@ -145,6 +163,82 @@ func (t *testProvider) BootDeviceSet(_ context.Context, _ string, _, _ bool) (ok
 
 func (t *testProvider) SetVirtualMedia(_ context.Context, _ string, _ string) (ok bool, err error) {
 	return t.VirtualMediaOK, t.ErrVirtualMediaInsert
+}
+
+// Extended-action capability implementations (Phase B).
+
+func (t *testProvider) SetPowerCap(_ context.Context, _ *float64) error {
+	return t.ErrPowerCapSet
+}
+
+func (t *testProvider) GetSecureBoot(_ context.Context) (bmc.SecureBootState, error) {
+	return bmc.SecureBootState{Enabled: t.SecureBootEnabled, Mode: "UserMode"}, nil
+}
+
+func (t *testProvider) SetSecureBoot(_ context.Context, enabled bool) error {
+	if t.ErrSecureBootSet == nil {
+		t.SecureBootEnabled = enabled
+	}
+	return t.ErrSecureBootSet
+}
+
+func (t *testProvider) ResetSecureBootKeys(_ context.Context, _ string) error {
+	return nil
+}
+
+func (t *testProvider) Inventory(_ context.Context) (*common.Device, error) {
+	if t.ErrInventory != nil {
+		return nil, t.ErrInventory
+	}
+	if t.Inv != nil {
+		return t.Inv, nil
+	}
+	return &common.Device{Common: common.Common{Vendor: "Lenovo", Model: "SR630 V2"}}, nil
+}
+
+func (t *testProvider) FirmwareInstall(_ context.Context, _ string, _ string, _ bool, _ io.Reader) (string, error) {
+	if t.ErrFirmwareInstall != nil {
+		return "", t.ErrFirmwareInstall
+	}
+	if t.FirmwareTaskID != "" {
+		return t.FirmwareTaskID, nil
+	}
+	return "task-1", nil
+}
+
+func (t *testProvider) FirmwareInstallStatus(_ context.Context, _ string, _ string, _ string) (string, error) {
+	if t.FirmwareStatusVal != "" {
+		return t.FirmwareStatusVal, nil
+	}
+	return "complete", nil
+}
+
+// bareProvider implements only the base provider contract (no extended
+// capabilities), used to exercise the "capability not supported" path.
+type bareProvider struct{}
+
+func (b *bareProvider) Name() string     { return "bare" }
+func (b *bareProvider) Protocol() string { return "redfish" }
+func (b *bareProvider) Features() registrar.Features {
+	return registrar.Features{providers.FeaturePowerState}
+}
+func (b *bareProvider) Open(_ context.Context) error  { return nil }
+func (b *bareProvider) Close(_ context.Context) error { return nil }
+func (b *bareProvider) PowerStateGet(_ context.Context) (string, error) {
+	return "on", nil
+}
+
+// newBareClient returns a ClientFunc registering only the bareProvider.
+func newBareClient() controller.ClientFunc {
+	return func(ctx context.Context, log logr.Logger, hostIP, username, password string, opts *controller.BMCOptions) (*bmclib.Client, error) {
+		o := opts.Translate(hostIP)
+		reg := registrar.NewRegistry(registrar.WithLogger(log))
+		p := &bareProvider{}
+		reg.Register(p.Name(), p.Protocol(), p.Features(), nil, p)
+		o = append(o, bmclib.WithLogger(log), bmclib.WithRegistry(reg))
+		cl := bmclib.NewClient(hostIP, username, password, o...)
+		return cl, cl.Open(ctx)
+	}
 }
 
 // newMockBMCClientFactoryFunc returns a new BMCClientFactoryFunc.

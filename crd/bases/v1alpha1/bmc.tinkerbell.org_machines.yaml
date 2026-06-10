@@ -130,7 +130,7 @@ spec:
                         items:
                           description: ProviderName is the bmclib specific provider
                             name. Names are case insensitive.
-                          pattern: (?i)^(ipmitool|asrockrack|gofish|IntelAMT|dell|supermicro|openbmc)$
+                          pattern: (?i)^(ipmitool|asrockrack|gofish|IntelAMT|dell|supermicro|openbmc|lenovo)$
                           type: string
                         type: array
                       redfish:

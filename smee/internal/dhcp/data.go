@@ -62,6 +62,10 @@ type Isoboot struct {
 	// It must be a valid url.URL{} object and must have a url.URL{}.Scheme of HTTP or HTTPS.
 	//+optional
 	SourceISO *url.URL
+	// ExtraKernelParams are additional per-hardware kernel command line parameters
+	// appended to the patched ISO cmdline (e.g. bond_members=, bond_mode=).
+	//+optional
+	ExtraKernelParams []string
 }
 
 // OSIE or OS Installation Environment is the data about where the OSIE parts are located.

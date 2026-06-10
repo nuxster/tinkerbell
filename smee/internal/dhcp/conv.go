@@ -41,14 +41,18 @@ func ConvertByMac(ctx context.Context, mac net.HardwareAddr, hw *v1alpha1.Hardwa
 
 	result := Hardware{DHCP: d, Netboot: n, AgentID: hw.Spec.AgentID}
 
-	if i.Isoboot != nil && i.Isoboot.SourceISO != "" {
-		si, err := url.Parse(i.Isoboot.SourceISO)
-		if err != nil {
-			span.SetStatus(codes.Error, err.Error())
+	if i.Isoboot != nil && (i.Isoboot.SourceISO != "" || len(i.Isoboot.ExtraKernelParams) > 0) {
+		var si *url.URL
+		if i.Isoboot.SourceISO != "" {
+			parsed, err := url.Parse(i.Isoboot.SourceISO)
+			if err != nil {
+				span.SetStatus(codes.Error, err.Error())
 
-			return Hardware{}, fmt.Errorf("failed to parse source ISO as a URL %q: %w", i.Isoboot.SourceISO, err)
+				return Hardware{}, fmt.Errorf("failed to parse source ISO as a URL %q: %w", i.Isoboot.SourceISO, err)
+			}
+			si = parsed
 		}
-		result.Isoboot = &Isoboot{SourceISO: si}
+		result.Isoboot = &Isoboot{SourceISO: si, ExtraKernelParams: i.Isoboot.ExtraKernelParams}
 	}
 
 	span.SetAttributes(d.EncodeToAttributes()...)
@@ -82,14 +86,18 @@ func ConvertByIP(ctx context.Context, ip net.IP, hw *v1alpha1.Hardware) (Hardwar
 
 	result := Hardware{DHCP: d, Netboot: n, AgentID: hw.Spec.AgentID}
 
-	if i.Isoboot != nil && i.Isoboot.SourceISO != "" {
-		si, err := url.Parse(i.Isoboot.SourceISO)
-		if err != nil {
-			span.SetStatus(codes.Error, err.Error())
+	if i.Isoboot != nil && (i.Isoboot.SourceISO != "" || len(i.Isoboot.ExtraKernelParams) > 0) {
+		var si *url.URL
+		if i.Isoboot.SourceISO != "" {
+			parsed, err := url.Parse(i.Isoboot.SourceISO)
+			if err != nil {
+				span.SetStatus(codes.Error, err.Error())
 
-			return Hardware{}, fmt.Errorf("failed to parse source ISO as a URL %q: %w", i.Isoboot.SourceISO, err)
+				return Hardware{}, fmt.Errorf("failed to parse source ISO as a URL %q: %w", i.Isoboot.SourceISO, err)
+			}
+			si = parsed
 		}
-		result.Isoboot = &Isoboot{SourceISO: si}
+		result.Isoboot = &Isoboot{SourceISO: si, ExtraKernelParams: i.Isoboot.ExtraKernelParams}
 	}
 
 	span.SetAttributes(d.EncodeToAttributes()...)

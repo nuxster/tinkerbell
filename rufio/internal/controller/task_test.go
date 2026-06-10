@@ -3,6 +3,8 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -254,6 +256,93 @@ func TestTaskReconcile(t *testing.T) {
 			}
 			if diff := cmp.Diff(retrieved2, retrieved); diff != "" {
 				t.Fatalf("expected no diff, got: %v", diff)
+			}
+		})
+	}
+}
+
+func stubFetcher(_ context.Context, _ string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("firmware-bytes")), nil
+}
+
+// TestTaskReconcileExtendedActions covers the Phase B actions: power cap, secure
+// boot, inventory, firmware install (success + failure), and the
+// capability-not-supported path against a provider lacking the capability.
+func TestTaskReconcileExtendedActions(t *testing.T) {
+	tests := map[string]struct {
+		action     bmc.Action
+		provider   *testProvider
+		bare       bool
+		shouldErr  bool
+		wantResult map[string]string
+	}{
+		"power cap set": {
+			action:   bmc.Action{PowerCapAction: &bmc.PowerCapAction{LimitWatts: toPtr(int64(250))}},
+			provider: &testProvider{},
+		},
+		"power cap disable": {
+			action:   bmc.Action{PowerCapAction: &bmc.PowerCapAction{Disable: true}},
+			provider: &testProvider{},
+		},
+		"secure boot enable": {
+			action:     bmc.Action{SecureBootAction: &bmc.SecureBootAction{Enable: true}},
+			provider:   &testProvider{},
+			wantResult: map[string]string{"secureBootRequested": "true", "secureBootEnabled": "true"},
+		},
+		"inventory read": {
+			action:     bmc.Action{InventoryAction: &bmc.InventoryAction{}},
+			provider:   &testProvider{},
+			wantResult: map[string]string{"vendor": "Lenovo", "model": "SR630 V2"},
+		},
+		"firmware install complete": {
+			action:     bmc.Action{FirmwareAction: &bmc.FirmwareAction{ImageURL: "http://x/fw.bin", Component: "bmc"}},
+			provider:   &testProvider{FirmwareTaskID: "t-9", FirmwareStatusVal: "complete"},
+			wantResult: map[string]string{"firmwareTaskID": "t-9", "firmwareState": "complete"},
+		},
+		"firmware install failed": {
+			action:    bmc.Action{FirmwareAction: &bmc.FirmwareAction{ImageURL: "http://x/fw.bin", Component: "bmc"}},
+			provider:  &testProvider{FirmwareStatusVal: "failed"},
+			shouldErr: true,
+		},
+		"capability not supported": {
+			action:    bmc.Action{SecureBootAction: &bmc.SecureBootAction{Enable: true}},
+			bare:      true,
+			shouldErr: true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			secret := createSecret()
+			task := createTask("ext-"+strings.ReplaceAll(name, " ", "-"), tt.action, secret)
+			cluster := newClientBuilder().WithObjects(task, secret).Build()
+
+			clientFunc := newTestClient(tt.provider)
+			if tt.bare {
+				clientFunc = newBareClient()
+			}
+			reconciler := controller.NewTaskReconciler(cluster, clientFunc, controller.WithImageFetcher(stubFetcher))
+			request := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: task.Namespace, Name: task.Name}}
+
+			_, err := reconciler.Reconcile(context.Background(), request)
+			if tt.shouldErr {
+				if err == nil {
+					t.Fatalf("expected err, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected nil err, got: %v", err)
+			}
+
+			var got bmc.Task
+			if err := cluster.Get(context.Background(), request.NamespacedName, &got); err != nil {
+				t.Fatalf("get task: %v", err)
+			}
+			for k, want := range tt.wantResult {
+				if got.Status.Result[k] != want {
+					t.Errorf("Status.Result[%q] = %q, want %q", k, got.Status.Result[k], want)
+				}
 			}
 		})
 	}

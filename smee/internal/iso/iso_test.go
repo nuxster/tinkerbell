@@ -104,6 +104,40 @@ menuentry 'LinuxKit ISO Image' {
 	}
 }
 
+func TestConstructPatchExtraKernelParams(t *testing.T) {
+	h := &Handler{
+		Logger: logr.Discard(),
+		Patch: Patch{
+			KernelParams: KernelParams{
+				ExtraParams:        []string{"global=1"},
+				Syslog:             "127.0.0.1:514",
+				TinkServerTLS:      false,
+				TinkServerGRPCAddr: "127.0.0.1:42113",
+			},
+		},
+	}
+
+	got := h.constructPatch("console=tty0", "de:ed:be:ef:fe:ed", nil, []string{
+		"bond_members=10-70-fd-fe-3d-4e,10-70-fd-fe-3d-4f",
+		"bond_mode=802.3ad",
+	})
+
+	want := "console=tty0 hw_addr=de:ed:be:ef:fe:ed syslog_host=127.0.0.1:514 " +
+		"grpc_authority=127.0.0.1:42113 tinkerbell_tls=false worker_id=de:ed:be:ef:fe:ed " +
+		"global=1 bond_members=10-70-fd-fe-3d-4e,10-70-fd-fe-3d-4f bond_mode=802.3ad"
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("constructPatch with extra kernel params mismatch (-want +got):\n%s", diff)
+	}
+
+	// No per-hardware params: cmdline must be unchanged from prior behavior.
+	gotNone := h.constructPatch("console=tty0", "de:ed:be:ef:fe:ed", nil, nil)
+	wantNone := "console=tty0 hw_addr=de:ed:be:ef:fe:ed syslog_host=127.0.0.1:514 " +
+		"grpc_authority=127.0.0.1:42113 tinkerbell_tls=false worker_id=de:ed:be:ef:fe:ed global=1"
+	if diff := cmp.Diff(wantNone, gotNone); diff != "" {
+		t.Fatalf("constructPatch without extra kernel params mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestPatching(t *testing.T) {
 	// create a small ISO file with the magic string
 	// serve ISO with a http server

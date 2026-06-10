@@ -282,7 +282,11 @@ func (h *Handler) roundTripWithRedirectCount(req *http.Request, redirectCount in
 			consoles = defaultConsoles
 		}
 		// The patch is added to the request context so that it can be used in the Copy method.
-		req = req.WithContext(internal.WithPatch(req.Context(), []byte(h.constructPatch(consoles, ha.String(), hw.DHCP))))
+		var hwExtraParams []string
+		if hw.Isoboot != nil {
+			hwExtraParams = hw.Isoboot.ExtraKernelParams
+		}
+		req = req.WithContext(internal.WithPatch(req.Context(), []byte(h.constructPatch(consoles, ha.String(), hw.DHCP, hwExtraParams))))
 
 		// Get the target URL (either from query parameter or default SourceISO)
 		fromHWObject := ""
@@ -368,7 +372,7 @@ func (h *Handler) roundTripWithRedirectCount(req *http.Request, redirectCount in
 	return resp, nil
 }
 
-func (h *Handler) constructPatch(console, mac string, d *dhcp.DHCP) string {
+func (h *Handler) constructPatch(console, mac string, d *dhcp.DHCP, hwExtraParams []string) string {
 	syslogHost := fmt.Sprintf("syslog_host=%s", h.Patch.KernelParams.Syslog)
 	grpcAuthority := fmt.Sprintf("grpc_authority=%s", h.Patch.KernelParams.TinkServerGRPCAddr)
 	tinkerbellTLS := fmt.Sprintf("tinkerbell_tls=%v", h.Patch.KernelParams.TinkServerTLS)
@@ -380,6 +384,9 @@ func (h *Handler) constructPatch(console, mac string, d *dhcp.DHCP) string {
 	}
 	all = append(all, hwAddr, syslogHost, grpcAuthority, tinkerbellTLS, workerID)
 	all = append(all, h.Patch.KernelParams.ExtraParams...)
+	// Per-hardware extra kernel params (e.g. bond_members=, bond_mode=). These are
+	// appended before IPAM so network-setup scripts (001-bond.sh) can read them.
+	all = append(all, hwExtraParams...)
 	if h.Patch.StaticIPAMEnabled && parseIPAM(d) != "" {
 		all = append(all, parseIPAM(d))
 	}

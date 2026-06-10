@@ -53,7 +53,7 @@ type MachineSpec struct {
 }
 
 // ProviderName is the bmclib specific provider name. Names are case insensitive.
-// +kubebuilder:validation:Pattern=(?i)^(ipmitool|asrockrack|gofish|IntelAMT|dell|supermicro|openbmc)$
+// +kubebuilder:validation:Pattern=(?i)^(ipmitool|asrockrack|gofish|IntelAMT|dell|supermicro|openbmc|lenovo)$
 type ProviderName string
 
 func (p ProviderName) String() string {

@@ -70,6 +70,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
+require github.com/bmc-toolbox/common v0.0.0-20250112191656-b6de52e8303d
+
 require (
 	cel.dev/expr v0.25.1 // indirect
 	cyphar.com/go-pathrs v0.2.1 // indirect
@@ -89,7 +91,6 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/bmc-toolbox/common v0.0.0-20250112191656-b6de52e8303d // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
@@ -157,7 +158,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/jacobweinstock/iamt v0.0.0-20230502042727-d7cdbe67d9ef // indirect
+	github.com/jacobweinstock/iamt v0.0.0-20260519145820-aa85bf8aad4e // indirect
 	github.com/jaypipes/pcidb v1.1.1 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
@@ -216,7 +217,7 @@ require (
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/cast v1.7.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
-	github.com/stmcginnis/gofish v0.20.0 // indirect
+	github.com/stmcginnis/gofish v0.21.6 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
@@ -286,6 +287,10 @@ require (
 )
 
 replace (
+	// Local dev: forked bmclib with the Lenovo XCC provider
+	// (branch feature/provider-lenovo). Replace with a tagged
+	// pseudo-version before release.
+	github.com/bmc-toolbox/bmclib/v2 => ../bmclib
 	github.com/tinkerbell/tinkerbell/api => ./api
 	k8s.io/api => k8s.io/api v0.35.5
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.35.5
