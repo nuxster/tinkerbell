@@ -12,6 +12,9 @@ type RedfishOptions struct {
 	// +optional
 	Port int `json:"port,omitempty"`
 	// UseBasicAuth for redfish calls. The default is false which means token based auth is used.
+	// This applies to every redfish-family provider (generic redfish, lenovo/XCC, dell/iDRAC):
+	// basic auth opens no Redfish session, which avoids exhausting the BMC's session cap when a
+	// session is leaked by a controller instance killed mid-operation.
 	// +optional
 	UseBasicAuth bool `json:"useBasicAuth,omitempty"`
 	// SystemName is the name of the system to use for redfish calls.

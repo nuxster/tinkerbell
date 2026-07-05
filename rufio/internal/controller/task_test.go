@@ -41,13 +41,14 @@ func getAction(s string) bmc.Action {
 
 func TestTaskReconcile(t *testing.T) {
 	tests := map[string]struct {
-		taskName   string
-		action     bmc.Action
-		provider   *testProvider
-		secret     *corev1.Secret
-		task       *bmc.Task
-		shouldErr  bool
-		timeoutErr bool
+		taskName    string
+		action      bmc.Action
+		provider    *testProvider
+		secret      *corev1.Secret
+		task        *bmc.Task
+		shouldErr   bool
+		timeoutErr  bool
+		wantRequeue bool
 	}{
 		"success power on": {
 			taskName: "PowerOn",
@@ -86,28 +87,40 @@ func TestTaskReconcile(t *testing.T) {
 			action:   getAction("PowerOn"),
 			provider: &testProvider{Powerstate: "on", PowerSetOK: true, Proto: "rpc"},
 		},
-		"failure on bmc open": {
+		// A transient BMC connection error is retried (requeued), not
+		// permanently failed, so the first Task after a controller restart is
+		// not lost to a momentary blip.
+		"transient bmc open error requeues": {
 			taskName: "PowerOn", action: getAction("PowerOn"),
-			provider:  &testProvider{ErrOpen: errors.New("failed to open")},
-			shouldErr: true,
+			provider:    &testProvider{ErrOpen: errors.New("failed to open")},
+			wantRequeue: true,
 		},
-		"failure on bmc power on": {
+		// A transient BMC connection error that persists beyond the retry
+		// budget eventually fails the Task.
+		"bmc open error past retry budget fails": {
 			taskName:  "PowerOn",
 			action:    getAction("PowerOn"),
-			provider:  &testProvider{ErrPowerStateSet: errors.New("failed to set power state")},
+			provider:  &testProvider{ErrOpen: errors.New("failed to open")},
+			task:      taskCreatedAt("PowerOn", getAction("PowerOn"), createSecret(), metav1.NewTime(time.Now().Add(-time.Hour))),
 			shouldErr: true,
 		},
-		"failure on set boot device": {
-			taskName:  "BootPXE",
-			action:    getAction("BootPXE"),
-			provider:  &testProvider{ErrBootDeviceSet: errors.New("failed to set boot device")},
-			shouldErr: true,
+		"transient bmc power on error requeues": {
+			taskName:    "PowerOn",
+			action:      getAction("PowerOn"),
+			provider:    &testProvider{ErrPowerStateSet: errors.New("failed to set power state")},
+			wantRequeue: true,
 		},
-		"failure on virtual media": {
-			taskName:  "VirtualMedia",
-			action:    getAction("VirtualMedia"),
-			provider:  &testProvider{ErrVirtualMediaInsert: errors.New("failed to set virtual media")},
-			shouldErr: true,
+		"transient set boot device error requeues": {
+			taskName:    "BootPXE",
+			action:      getAction("BootPXE"),
+			provider:    &testProvider{ErrBootDeviceSet: errors.New("failed to set boot device")},
+			wantRequeue: true,
+		},
+		"transient virtual media error requeues": {
+			taskName:    "VirtualMedia",
+			action:      getAction("VirtualMedia"),
+			provider:    &testProvider{ErrVirtualMediaInsert: errors.New("failed to set virtual media")},
+			wantRequeue: true,
 		},
 		"failure timeout": {
 			taskName:   "PowerOn",
@@ -134,7 +147,7 @@ func TestTaskReconcile(t *testing.T) {
 			},
 			provider: &testProvider{BootdeviceOK: true},
 		},
-		"failure on boot device set": {
+		"transient boot device set error requeues": {
 			taskName: "boot device pxe",
 			action: bmc.Action{
 				BootDevice: &bmc.BootDeviceConfig{
@@ -143,8 +156,8 @@ func TestTaskReconcile(t *testing.T) {
 					EFIBoot:    true,
 				},
 			},
-			provider:  &testProvider{ErrBootDeviceSet: errors.New("failed to set boot device")},
-			shouldErr: true,
+			provider:    &testProvider{ErrBootDeviceSet: errors.New("failed to set boot device")},
+			wantRequeue: true,
 		},
 		"failure to find task": {
 			taskName:  "empty task",
@@ -189,6 +202,27 @@ func TestTaskReconcile(t *testing.T) {
 				t.Fatalf("expected err, got: %v", err)
 			}
 			if tt.shouldErr {
+				return
+			}
+			if tt.wantRequeue {
+				if err != nil {
+					t.Fatalf("expected nil err on requeue, got: %v", err)
+				}
+				if result.RequeueAfter <= 0 {
+					t.Fatalf("expected a requeue, got result: %+v", result)
+				}
+				// A requeued Task must not carry a sticky condition or a
+				// completion time, so it is retried on the next reconcile.
+				var requeued bmc.Task
+				if err = cluster.Get(context.Background(), request.NamespacedName, &requeued); err != nil {
+					t.Fatalf("expected nil err, got: %v", err)
+				}
+				if len(requeued.Status.Conditions) != 0 {
+					t.Fatalf("expected no conditions on a requeued task, got: %v", requeued.Status.Conditions)
+				}
+				if !requeued.Status.CompletionTime.IsZero() {
+					t.Fatalf("expected no completion time on a requeued task, got: %v", requeued.Status.CompletionTime)
+				}
 				return
 			}
 			if diff := cmp.Diff(result, ctrl.Result{}); diff != "" {
@@ -375,6 +409,14 @@ func createTask(name string, action bmc.Action, secret *corev1.Secret) *bmc.Task
 			},
 		},
 	}
+}
+
+// taskCreatedAt is createTask with an explicit CreationTimestamp, used to
+// exercise the transient-retry budget (which is measured from creation).
+func taskCreatedAt(name string, action bmc.Action, secret *corev1.Secret, created metav1.Time) *bmc.Task {
+	task := createTask(name, action, secret)
+	task.CreationTimestamp = created
+	return task
 }
 
 func createTaskWithRPC(name string, action bmc.Action, secret *corev1.Secret) *bmc.Task {

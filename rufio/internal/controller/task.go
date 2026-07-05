@@ -38,6 +38,18 @@ import (
 const (
 	powerActionRequeueAfter = 3 * time.Second
 
+	// transientRetryRequeueAfter is the backoff between retries of a Task that
+	// hit a transient error: a refused/timed-out BMC connection, a Redfish
+	// session cap momentarily exhausted (e.g. a session leaked by a previous
+	// controller instance across a restart/upgrade), a BMC still settling after
+	// a reboot, or a 5xx returned mid-operation. Such errors must not
+	// permanently fail the Task.
+	transientRetryRequeueAfter = 10 * time.Second
+
+	// transientRetryBudget bounds how long a Task keeps retrying transient
+	// errors, measured from its creation, before it is marked Failed.
+	transientRetryBudget = 10 * time.Minute
+
 	// firmwarePollInterval/firmwarePollTimeout bound the inline poll of a
 	// firmware install task to a terminal state.
 	firmwarePollInterval = 5 * time.Second
@@ -104,6 +116,34 @@ func isCapabilityUnsupported(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "implementations found") || strings.Contains(msg, "not supported")
+}
+
+// isTerminalError reports whether err is a permanent failure that retrying
+// cannot fix: an unsupported capability, a Task with no action, or a definitive
+// firmware-install failure (retrying would needlessly re-flash). Every other
+// error is treated as transient and retried until the retry budget expires.
+func isTerminalError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isCapabilityUnsupported(err) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no action specified") ||
+		strings.Contains(msg, "firmware install task")
+}
+
+// retryBudgetExpired reports whether a Task has been retrying transient errors
+// for longer than transientRetryBudget, measured from its creation time. When
+// the creation time is unknown (zero), it is treated as not expired so that a
+// transient error is retried rather than failing the Task outright.
+func retryBudgetExpired(task *bmc.Task) bool {
+	created := task.CreationTimestamp.Time
+	if created.IsZero() {
+		return false
+	}
+	return time.Since(created) > transientRetryBudget
 }
 
 //+kubebuilder:rbac:groups=bmc.tinkerbell.org,resources=tasks,verbs=get;list;watch;create;update;patch;delete
@@ -175,7 +215,18 @@ func (r *TaskReconciler) doReconcile(ctx context.Context, task *bmc.Task, taskPa
 	bmcClient, err := r.bmcClientFactory(ctx, logger, task.Spec.Connection.Host, username, password, opts)
 	if err != nil {
 		logger.Error(err, "BMC connection failed", "host", task.Spec.Connection.Host)
-		task.SetCondition(bmc.TaskFailed, bmc.ConditionTrue, bmc.WithTaskConditionMessage(fmt.Sprintf("Failed to connect to BMC: %v", err)))
+		// A failed BMC connection is almost always transient: the BMC may be
+		// busy or rebooting, its Redfish session cap may be momentarily
+		// exhausted (e.g. a session leaked by a previous controller instance
+		// across a restart/upgrade), or the network path may not be ready yet.
+		// Requeue with backoff instead of permanently failing the Task, until
+		// the retry budget is exhausted. No status is patched here, so the Task
+		// keeps no sticky Failed condition and is retried on the next reconcile.
+		if !retryBudgetExpired(task) {
+			logger.Info("requeueing task after transient BMC connection error", "requeueAfter", transientRetryRequeueAfter)
+			return ctrl.Result{RequeueAfter: transientRetryRequeueAfter}, nil
+		}
+		task.SetCondition(bmc.TaskFailed, bmc.ConditionTrue, bmc.WithTaskConditionMessage(fmt.Sprintf("Failed to connect to BMC after retries: %v", err)))
 		patchErr := r.patchStatus(ctx, task, taskPatch)
 		if patchErr != nil {
 			return ctrl.Result{}, utilerrors.NewAggregate([]error{patchErr, err})
@@ -243,6 +294,18 @@ func (r *TaskReconciler) doReconcile(ctx context.Context, task *bmc.Task, taskPa
 	if err != nil {
 		md := bmcClient.GetMetadata()
 		logger.Info("failed to perform action", "providersAttempted", md.ProvidersAttempted, "action", task.Spec.Task)
+
+		// A transient action error (a 5xx from the BMC, a connection reset
+		// mid-operation) should be retried rather than permanently failing the
+		// Task. StartTime is deliberately not persisted on this path (no status
+		// patch), so the next reconcile re-runs the action instead of entering
+		// the status-check branch and falsely reporting completion. Terminal
+		// errors and an exhausted retry budget fall through to Failed.
+		if !isTerminalError(err) && !retryBudgetExpired(task) {
+			logger.Info("requeueing task after transient action error", "requeueAfter", transientRetryRequeueAfter)
+			return ctrl.Result{RequeueAfter: transientRetryRequeueAfter}, nil
+		}
+
 		// Record any partial result (e.g. a firmware task id/state) alongside the failure.
 		mergeResult(task, actionResult)
 		// Set Task Condition Failed True

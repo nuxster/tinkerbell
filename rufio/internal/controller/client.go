@@ -70,7 +70,19 @@ func (b BMCOptions) Translate(host string) []bmclib.Option {
 			o = append(o, bmclib.WithRedfishPort(strconv.Itoa(b.Redfish.Port)))
 		}
 		if b.Redfish.UseBasicAuth {
-			o = append(o, bmclib.WithRedfishUseBasicAuth(true))
+			// Enable Basic auth for every redfish-family provider, not just the
+			// generic redfish one. The vendor providers (lenovo/XCC, dell/iDRAC)
+			// are also gofish-backed and, without this, fall back to token-based
+			// auth which opens a Redfish session per connection. A session leaked
+			// by a controller instance killed mid-operation (restart/upgrade)
+			// counts against the BMC's session cap (e.g. XCC allows 16), so the
+			// next connection can transiently fail to authenticate. Basic auth
+			// opens no session and sidesteps the leak entirely.
+			o = append(o,
+				bmclib.WithRedfishUseBasicAuth(true),
+				bmclib.WithLenovoUseBasicAuth(true),
+				bmclib.WithDellRedfishUseBasicAuth(true),
+			)
 		}
 		if b.Redfish.SystemName != "" {
 			o = append(o, bmclib.WithRedfishSystemName(b.Redfish.SystemName))
